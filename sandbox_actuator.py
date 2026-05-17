@@ -1,12 +1,8 @@
 import json
-import logging
-import os
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from config import ALLOW_DOCKER, AUDIT_LOG_PATH, DOCKER_TARGET_CONTAINER
-
-logger = logging.getLogger(__name__)
 
 try:
     import docker
@@ -18,17 +14,15 @@ class SandboxActuatorEngine:
     def __init__(self):
         self.containment_cycles = 0
 
-    def _append_audit(self, payload: Dict[str, Any]) -> None:
+    def _append_audit(self, payload: Dict[str, Any]):
         with open(AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def _docker_containment(self) -> Dict[str, Any]:
         if not ALLOW_DOCKER:
             return {"status": "SKIPPED", "reason": "DOCKER_DISABLED"}
-
-        if not docker:
+        if docker is None:
             return {"status": "FAILED", "reason": "DOCKER_SDK_NOT_AVAILABLE"}
-
         if not DOCKER_TARGET_CONTAINER:
             return {"status": "FAILED", "reason": "NO_TARGET_CONTAINER_CONFIGURED"}
 
