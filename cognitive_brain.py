@@ -16,64 +16,84 @@ load_dotenv()
 
 class LLMAgentBrain:
     """
-    Deterministic risk engine first.
-    Optional LLM summary second.
+    Deterministic system-risk engine first.
+    Structured LLM augmentation second.
     """
 
     def __init__(self, sensor_node: SystemTelemetryMatrix):
         self.sensor = sensor_node
         self.api_key = os.getenv("AI_AGENT_API_KEY", "").strip()
-        self.model_name = os.getenv("AI_AGENT_MODEL", "llama-3.1-8b-instant")
+        self.model_name = os.getenv("AI_AGENT_MODEL", "llama-3.1-8b-instant").strip()
         self.base_url = os.getenv("AI_AGENT_BASE_URL", "https://api.groq.com/openai/v1").strip()
 
         self.client = None
         if self.api_key and OpenAI is not None:
             self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
-    def _deterministic_decision(self, telemetry_data: Dict[str, Any], operational_goal: str) -> Dict[str, Any]:
+    def _normalize_metrics(self, telemetry_data: Dict[str, Any]) -> Dict[str, float]:
         metrics = telemetry_data.get("metrics", {})
-        cpu = float(metrics.get("cpu_load_percentage", 0))
-        mem = float(metrics.get("memory_usage_percentage", 0))
-        disk = float(metrics.get("disk_usage_percentage", 0))
-        proc = int(metrics.get("process_count", 0))
+        return {
+            "cpu": float(metrics.get("cpu_load_percentage", 0) or 0),
+            "memory": float(metrics.get("memory_usage_percentage", 0) or 0),
+            "disk": float(metrics.get("disk_usage_percentage", 0) or 0),
+            "process_count": float(metrics.get("process_count", 0) or 0),
+        }
+
+    def _deterministic_decision(self, telemetry_data: Dict[str, Any], operational_goal: str) -> Dict[str, Any]:
+        m = self._normalize_metrics(telemetry_data)
 
         score = 0
         reasons: List[str] = []
+        anomalies: List[str] = []
 
-        if cpu >= 90:
+        if m["cpu"] >= 90:
             score += 3
-            reasons.append(f"CPU critically high at {cpu}%.")
-        elif cpu >= 75:
+            anomalies.append("cpu_critical")
+            reasons.append(f"CPU critically high at {m['cpu']}%.")
+        elif m["cpu"] >= 75:
             score += 2
-            reasons.append(f"CPU elevated at {cpu}%.")
+            anomalies.append("cpu_elevated")
+            reasons.append(f"CPU elevated at {m['cpu']}%.")
 
-        if mem >= 90:
+        if m["memory"] >= 90:
             score += 3
-            reasons.append(f"Memory critically high at {mem}%.")
-        elif mem >= 80:
+            anomalies.append("memory_critical")
+            reasons.append(f"Memory critically high at {m['memory']}%.")
+        elif m["memory"] >= 80:
             score += 2
-            reasons.append(f"Memory elevated at {mem}%.")
+            anomalies.append("memory_elevated")
+            reasons.append(f"Memory elevated at {m['memory']}%.")
 
-        if disk >= 95:
+        if m["disk"] >= 95:
             score += 3
-            reasons.append(f"Disk critically high at {disk}%.")
-        elif disk >= 85:
+            anomalies.append("disk_critical")
+            reasons.append(f"Disk critically high at {m['disk']}%.")
+        elif m["disk"] >= 85:
             score += 2
-            reasons.append(f"Disk elevated at {disk}%.")
+            anomalies.append("disk_elevated")
+            reasons.append(f"Disk elevated at {m['disk']}%.")
 
-        if proc >= 400:
+        if m["process_count"] >= 450:
+            score += 2
+            anomalies.append("process_spike")
+            reasons.append(f"Process count unusually high at {int(m['process_count'])}.")
+        elif m["process_count"] >= 300:
             score += 1
-            reasons.append(f"Process count unusually high at {proc}.")
+            anomalies.append("process_elevated")
+            reasons.append(f"Process count elevated at {int(m['process_count'])}.")
 
-        if score >= 5:
+        if score >= 6:
             verdict = "TRIGGER_SELF_HEALING"
             priority = "CRITICAL"
-        elif score >= 2:
+            confidence = "HIGH"
+        elif score >= 3:
             verdict = "REVIEW_AND_MONITOR"
             priority = "HIGH"
+            confidence = "MEDIUM"
         else:
             verdict = "MAINTAIN_STEADY_STATE"
             priority = "LOW"
+            confidence = "HIGH"
 
         if not reasons:
             reasons.append("All monitored system metrics are within normal thresholds.")
@@ -81,19 +101,25 @@ class LLMAgentBrain:
         return {
             "verdict": verdict,
             "execution_priority": priority,
+            "confidence": confidence,
+            "anomaly_score": score,
+            "anomalies": anomalies,
             "reasoning_topology": " ".join(reasons),
             "goal": operational_goal,
             "used_llm": False,
+            "llm_analysis": None,
         }
 
-    def _llm_summary(self, telemetry_data: Dict[str, Any], deterministic_result: Dict[str, Any]) -> Optional[str]:
+    def _llm_analysis(self, telemetry_data: Dict[str, Any], deterministic_result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not self.client:
             return None
 
         system_prompt = (
-            "You are a systems operations assistant. "
-            "Summarize telemetry and deterministic verdict in 2 short factual sentences. "
-            "Do not invent incidents. Do not change the verdict. Plain English only."
+            "You are a systems operations analysis assistant. "
+            "Return valid JSON only. "
+            "Do not override the deterministic verdict. "
+            "Produce an object with keys: "
+            "summary, operational_risk, recommended_next_step, notable_metric."
         )
 
         user_prompt = json.dumps(
@@ -107,22 +133,39 @@ class LLMAgentBrain:
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
+                response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.1,
+                max_tokens=250,
             )
-            return response.choices[0].message.content.strip()
-        except Exception:
-            return None
+            content = response.choices[0].message.content
+            if not content:
+                return None
+            parsed = json.loads(content)
+
+            return {
+                "summary": str(parsed.get("summary", "")).strip(),
+                "operational_risk": str(parsed.get("operational_risk", "")).strip(),
+                "recommended_next_step": str(parsed.get("recommended_next_step", "")).strip(),
+                "notable_metric": str(parsed.get("notable_metric", "")).strip(),
+            }
+        except Exception as e:
+            return {
+                "summary": "",
+                "operational_risk": "UNAVAILABLE",
+                "recommended_next_step": "",
+                "notable_metric": f"LLM unavailable: {str(e)}",
+            }
 
     def consult_ai_core(self, telemetry_data: Dict[str, Any], operational_goal: str) -> Dict[str, Any]:
         deterministic = self._deterministic_decision(telemetry_data, operational_goal)
-        llm_summary = self._llm_summary(telemetry_data, deterministic)
+        llm_analysis = self._llm_analysis(telemetry_data, deterministic)
 
-        if llm_summary:
-            deterministic["reasoning_topology"] = llm_summary
+        if llm_analysis:
+            deterministic["llm_analysis"] = llm_analysis
             deterministic["used_llm"] = True
 
         return deterministic
