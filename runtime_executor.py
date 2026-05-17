@@ -1,29 +1,37 @@
 import time
 import gc
+import os
 from typing import Dict, Any
-from core_telemetry import SystemTelemetryMatrix
-from cognitive_brain import LLMAgentBrain
 
 class RuntimeExecutionOrchestrator:
     """
-    The Action Layer. Translates strategic verdicts from the 
-    Cognitive Brain into real-world runtime environment corrections.
+    Action Execution Layer. Translates virtual AI verdicts 
+    into absolute system interventions and local environment patches.
     """
-    def __init__(self, brain_node: LLMAgentBrain):
+    def __init__(self, brain_node: Any):
         self.brain = brain_node
-        self.execution_counter = 0
+        self.log_file = "mythos_execution_audit.log"
 
     def deploy_self_healing_vector(self, strategy: Dict[str, Any]):
-        """Executes targeted system interventions to restore equilibrium."""
-        print("\n⚡ [Executor-Core] ANOMALY DRIFT DETECTED. Cleaning system memory topology...")
-        gc.collect()  # Flush system memory structures
-        self.execution_counter += 1
-
-    def run_autonomous_pipeline(self, target_task: str):
-        """Synchronizes Sensors, Brain, and Actuators into an active pipeline."""
-        strategy_payload = self.brain.formulate_execution_strategy(target_task)
-        verdict = strategy_payload.get("verdict")
+        """Executes actual memory sweeps and writes state-reflective audit structures."""
+        # 1. Real Internal Intervention
+        gc.collect()
         
-        if verdict == "TRIGGER_SELF_HEALING":
+        # 2. File-System Action Node (Writing real execution tracking logs)
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        log_entry = f"[{timestamp}] [VERDICT]: {strategy.get('verdict')} | [TOPOLOGY]: {strategy.get('reasoning_topology')}\n"
+        
+        try:
+            with open(self.log_file, "a") as f:
+                f.write(log_entry)
+        except Exception:
+            pass
+
+    def run_autonomous_pipeline(self, target_task: str) -> dict:
+        """Executes the operational pipeline loop."""
+        strategy_payload = self.brain.formulate_execution_strategy(target_task)
+        
+        if strategy_payload.get("verdict") == "TRIGGER_SELF_HEALING":
             self.deploy_self_healing_vector(strategy_payload)
+            
         return strategy_payload
