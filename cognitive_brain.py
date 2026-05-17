@@ -1,71 +1,77 @@
 import os
 import json
-from openai import OpenAI  # AI Bot core library
+import math
+from openai import OpenAI
 from core_telemetry import SystemTelemetryMatrix
 
 class LLMAgentBrain:
     """
     Advanced AI Bot Brain. Passes raw system telemetry vectors 
-    directly to an LLM (Gemini/OpenAI) to make autonomous decisions.
+    directly to an LLM or fallback math heuristics to make autonomous decisions.
     """
     def __init__(self, sensor_node: SystemTelemetryMatrix):
         self.sensor = sensor_node
-        # Initializing the AI Client (Can be pointed to Google Gemini or OpenAI)
-        self.client = OpenAI(
-            api_key=os.environ.get("AI_AGENT_API_KEY", "your-fallback-key")
-        )
+        self.cognitive_threshold = 65.0
+        # Safe initialization of OpenAI/Gemini client
+        self.api_key = os.environ.get("AI_AGENT_API_KEY", "")
+        if self.api_key:
+            self.client = OpenAI(api_key=self.api_key)
+        else:
+            self.client = None
+
+    def compute_math_fallback(self, metrics: dict) -> dict:
+        """Heuristic math engine that triggers if Cloud AI API key is not configured."""
+        cpu = metrics.get("cpu_load_percentage", 0.0)
+        drift = metrics.get("memory_drift_coefficient", 0.0)
+        
+        base_vector = (cpu * 0.4) + (drift * 0.6)
+        entropy_factor = math.sin(base_vector) * 5.0
+        anomaly_index = round(base_vector + entropy_factor, 4)
+        
+        if anomaly_index > self.cognitive_threshold:
+            return {
+                "verdict": "TRIGGER_SELF_HEALING",
+                "reasoning_topology": f"Heuristic Engine Alert: Anomaly Index ({anomaly_index}) breached safety limits."
+            }
+        else:
+            return {
+                "verdict": "MAINTAIN_STEADY_STATE",
+                "reasoning_topology": f"Heuristic Engine Nominal: System baseline stable at score {anomaly_index}."
+            }
 
     def consult_ai_bot(self, telemetry_data: dict, task: str) -> dict:
-        """Sends telemetry matrices to the AI Bot and gets a structured JSON verdict."""
-        
-        # System instructions to lock the AI into a strict Developer/Agent mindset
+        """Consults LLM Bot if key exists, otherwise gracefully falls back to Math Heuristics."""
+        if not self.client:
+            return self.compute_math_fallback(telemetry_data.get("metrics", {}))
+
         system_prompt = (
             "You are the autonomous execution core of a hybrid AI Agent. "
-            "You will receive raw system telemetry. Analyze it for memory leaks, "
-            "high CPU stress, or environment drift. You must respond ONLY in a valid JSON object "
-            "with keys: 'verdict' (either 'TRIGGER_SELF_HEALING' or 'MAINTAIN_STEADY_STATE') "
-            "and 'reasoning_topology' (a short technical description of your analysis)."
+            "Analyze raw system telemetry for anomalies. Respond ONLY in a valid JSON object "
+            "with keys: 'verdict' ('TRIGGER_SELF_HEALING' or 'MAINTAIN_STEADY_STATE') "
+            "and 'reasoning_topology' (technical analysis description)."
         )
-
-        user_prompt = f"Objective: {task}\nLive System Telemetry: {json.dumps(telemetry_data)}"
+        user_prompt = f"Objective: {task}\nTelemetry: {json.dumps(telemetry_data)}"
 
         try:
-            # Triggering the AI Bot (Gemini-flash / GPT-4o style execution)
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini", # Or gemini-2.5-flash / gemini-1.5-pro
-                response_format={ "type": "json_object" }, # Enforcing strict JSON outputs
+                model="gpt-4o-mini",
+                response_format={ "type": "json_object" },
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.2 # Keeping it precise and low-entropy
+                temperature=0.2
             )
-            
-            # Parsing the AI Bot's thoughts
-            ai_verdict = json.loads(response.choices[0].message.content)
-            return ai_verdict
-            
+            return json.loads(response.choices[0].message.content)
         except Exception as e:
-            # Self-healing fallback if API fails or times out
-            return {
-                "verdict": "MAINTAIN_STEADY_STATE",
-                "reasoning_topology": f"AI Bot Connection Timeout. Fallback active. Error: {str(e)}"
-            }
+            return self.compute_math_fallback(telemetry_data.get("metrics", {}))
 
     def formulate_execution_strategy(self, task_objective: str) -> dict:
-        print(f"\n🧠 [AI-Brain] Dispatching system logs to LLM Cloud Engine...")
-        
-        # 1. Fetch live telemetry from our first module
         raw_telemetry = self.sensor.capture_runtime_vectors()
-        
-        # 2. Consult the AI Bot (Gemini/OpenAI)
         ai_strategy = self.consult_ai_bot(raw_telemetry, task_objective)
         
-        print(f"🤖 [AI Bot Verdict]: {ai_strategy.get('verdict')}")
-        print(f"📖 [AI Bot Reasoning]: {ai_strategy.get('reasoning_topology')}")
-        
         return {
-            "verdict": ai_strategy.get("verdict"),
-            "reasoning_topology": ai_strategy.get("reasoning_topology"),
+            "verdict": ai_strategy.get("verdict", "MAINTAIN_STEADY_STATE"),
+            "reasoning_topology": ai_strategy.get("reasoning_topology", "System diagnostic active."),
             "execution_priority": "CRITICAL" if ai_strategy.get("verdict") == "TRIGGER_SELF_HEALING" else "LOW"
         }
