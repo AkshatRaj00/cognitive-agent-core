@@ -1,54 +1,79 @@
-import time
 import gc
+import json
+import os
+import platform
 import subprocess
-from typing import Dict, Any
+import time
+from typing import Any, Dict
+
 
 class RuntimeExecutionOrchestrator:
     """
-    Enterprise Action Layer. Executes physical system checks, 
-    memory garbage collection flushes, and logs real telemetry state-changes.
+    Safe executor for local maintenance actions and audit logging.
     """
+
     def __init__(self, brain_node: Any):
         self.brain = brain_node
         self.audit_log_path = "production_agent_audit.log"
 
     def execute_environment_check(self) -> str:
-        """Executes a real low-level safe diagnostics command on the host container shell."""
         try:
-            # Invoking direct host operating system signature strings safely
-            result = subprocess.run(["uname", "-a"], capture_output=True, text=True, timeout=3)
-            return result.stdout.strip()
+            if platform.system().lower().startswith("win"):
+                result = subprocess.run(
+                    ["cmd", "/c", "ver"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+            else:
+                result = subprocess.run(
+                    ["uname", "-a"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+            return (result.stdout or result.stderr).strip()
         except Exception as e:
-            return f"Subprocess check skipped. Reason: {str(e)}"
+            return f"Environment check skipped: {str(e)}"
 
-    def deploy_production_patch(self, strategy: Dict[str, Any]):
-        """Triggers local environment healing vectors and registers physical audit trails."""
-        # 1. Action: Direct memory sweep
-        gc.collect()
-        
-        # 2. Action: Subprocess hardware diagnostics query
+    def deploy_production_patch(self, strategy: Dict[str, Any]) -> Dict[str, Any]:
+        gc_cycles = 0
         shell_intel = self.execute_environment_check()
-        
-        # 3. Action: Write permanent logs to container drive
-        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-        log_entry = (
-            f"[{timestamp}] [VERDICT] {strategy.get('verdict')} | "
-            f"[SHELL INTEL] {shell_intel} | "
-            f"[REASONING] {strategy.get('reasoning_topology')}\n"
-        )
-        
+
         try:
-            with open(self.audit_log_path, "a") as audit_file:
-                audit_file.write(log_entry)
+            gc_cycles = gc.collect()
+        except Exception:
+            gc_cycles = 0
+
+        maintenance_report = {
+            "gc_cycles_collected": gc_cycles,
+            "environment_check": shell_intel,
+            "action_status": "COMPLETED",
+        }
+
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = {
+            "timestamp": timestamp,
+            "verdict": strategy.get("verdict"),
+            "priority": strategy.get("execution_priority"),
+            "reasoning": strategy.get("reasoning_topology"),
+            "maintenance_report": maintenance_report,
+        }
+
+        try:
+            with open(self.audit_log_path, "a", encoding="utf-8") as audit_file:
+                audit_file.write(json.dumps(log_entry) + "\n")
         except Exception:
             pass
 
+        return maintenance_report
+
     def run_autonomous_pipeline(self, target_task: str) -> dict:
-        """Synchronizes sensors and actuators inside a production feedback channel."""
         strategy_payload = self.brain.formulate_execution_strategy(target_task)
-        
-        # In production environments, actions trigger on actual system requirements
+
+        maintenance_report = None
         if strategy_payload.get("verdict") == "TRIGGER_SELF_HEALING":
-            self.deploy_production_patch(strategy_payload)
-            
+            maintenance_report = self.deploy_production_patch(strategy_payload)
+
+        strategy_payload["maintenance_report"] = maintenance_report
         return strategy_payload
