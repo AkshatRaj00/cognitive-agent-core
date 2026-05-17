@@ -11,7 +11,7 @@ st.title("🧠 Cognitive AI Agent Core")
 st.subheader("Autonomous Multi-Agent Feedback Control Loop")
 st.markdown("---")
 
-# Bootstrap system layers
+# Bootstrap system layers securely
 if 'sensor' not in st.session_state:
     st.session_state.sensor = SystemTelemetryMatrix()
     st.session_state.brain = LLMAgentBrain(sensor_node=st.session_state.sensor)
@@ -42,8 +42,8 @@ if run_loop:
         metrics = telemetry.get("metrics", {})
         
         # Live dashboard updates
-        cpu_metric.metric(label="System CPU Footprint", value=f"{metrics['cpu_load_percentage']} %")
-        memory_metric.metric(label="Calculated Memory Drift", value=f"{metrics['memory_drift_coefficient']} %")
+        cpu_metric.metric(label="System CPU Footprint", value=f"{metrics['metrics']['cpu_load_percentage']} %")
+        memory_metric.metric(label="Calculated Memory Drift", value=f"{metrics['metrics']['memory_drift_coefficient']} %")
         
         # 2. Execution Pipeline run
         strategy = st.session_state.orchestrator.run_autonomous_pipeline("Optimize cluster infrastructure latency.")
@@ -53,7 +53,7 @@ if run_loop:
             status_box.error("🔴 ANOMALY BREACH")
             action_box.error(f"⚡ [Action Vector]: {strategy['reasoning_topology']}")
         else:
-            status_box.success("🟢 baseline Secure")
+            status_box.success("🟢 Baseline Secure")
             action_box.success(f"🛡️ [Steady State]: {strategy['reasoning_topology']}")
             
         log_line = f"[{time.strftime('%H:%M:%S')}] {strategy['verdict']} ➔ {strategy['reasoning_topology']}"
