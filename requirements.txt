@@ -1,4 +1,6 @@
 streamlit
-psutil
+requests
 openai
 python-dotenv
+psutil
+docker
