@@ -13,7 +13,7 @@ class LLMAgentBrain:
         self.sensor = sensor_node
         self.cognitive_threshold = 65.0
         # Safe initialization of OpenAI/Gemini client
-        self.api_key = os.environ.get("AI_AGENT_API_KEY", "")
+        self.api_key = os.environ.get("org_01krvpwrw8ffnsz27mhc1psgzh", "")
         if self.api_key:
             self.client = OpenAI(api_key=self.api_key)
         else:
