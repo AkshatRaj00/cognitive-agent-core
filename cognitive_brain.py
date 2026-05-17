@@ -1,69 +1,71 @@
-import time
-import math
-from typing import Dict, Any, List
-# Interconnecting with our first module dynamically
+import os
+import json
+from openai import OpenAI  # AI Bot core library
 from core_telemetry import SystemTelemetryMatrix
 
-class CognitiveMatrixEngine:
+class LLMAgentBrain:
     """
-    The Central Reasoning Core. Processes real-time environmental 
-    telemetry vectors through advanced algorithmic evaluation thresholds.
+    Advanced AI Bot Brain. Passes raw system telemetry vectors 
+    directly to an LLM (Gemini/OpenAI) to make autonomous decisions.
     """
     def __init__(self, sensor_node: SystemTelemetryMatrix):
         self.sensor = sensor_node
-        self.anomaly_log: List[Dict[str, Any]] = []
-        self.cognitive_threshold: float = 65.0  # Dynamic control limit
+        # Initializing the AI Client (Can be pointed to Google Gemini or OpenAI)
+        self.client = OpenAI(
+            api_key=os.environ.get("AI_AGENT_API_KEY", "your-fallback-key")
+        )
 
-    def compute_anomaly_index(self, metrics: Dict[str, Any]) -> float:
-        """
-        Calculates localized mathematical entropy from raw system telemetry.
-        Uses sinusoidal smoothing to simulate human-like threshold evaluation.
-        """
-        cpu = metrics.get("cpu_load_percentage", 0.0)
-        drift = metrics.get("memory_drift_coefficient", 0.0)
+    def consult_ai_bot(self, telemetry_data: dict, task: str) -> dict:
+        """Sends telemetry matrices to the AI Bot and gets a structured JSON verdict."""
         
-        # Advanced weight matrix formula to calculate anomalous system states
-        base_load_vector = (cpu * 0.4) + (drift * 0.6)
-        entropy_factor = math.sin(base_load_vector) * 5.0
-        
-        return round(base_load_vector + entropy_factor, 4)
+        # System instructions to lock the AI into a strict Developer/Agent mindset
+        system_prompt = (
+            "You are the autonomous execution core of a hybrid AI Agent. "
+            "You will receive raw system telemetry. Analyze it for memory leaks, "
+            "high CPU stress, or environment drift. You must respond ONLY in a valid JSON object "
+            "with keys: 'verdict' (either 'TRIGGER_SELF_HEALING' or 'MAINTAIN_STEADY_STATE') "
+            "and 'reasoning_topology' (a short technical description of your analysis)."
+        )
 
-    def formulate_execution_strategy(self, task_objective: str) -> Dict[str, Any]:
-        """Reads live data, evaluates state, and self-corrects the path."""
-        print(f"\n🧠 [Brain-Core] Analyzing operational vectors for objective: '{task_objective}'")
+        user_prompt = f"Objective: {task}\nLive System Telemetry: {json.dumps(telemetry_data)}"
+
+        try:
+            # Triggering the AI Bot (Gemini-flash / GPT-4o style execution)
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini", # Or gemini-2.5-flash / gemini-1.5-pro
+                response_format={ "type": "json_object" }, # Enforcing strict JSON outputs
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.2 # Keeping it precise and low-entropy
+            )
+            
+            # Parsing the AI Bot's thoughts
+            ai_verdict = json.loads(response.choices[0].message.content)
+            return ai_verdict
+            
+        except Exception as e:
+            # Self-healing fallback if API fails or times out
+            return {
+                "verdict": "MAINTAIN_STEADY_STATE",
+                "reasoning_topology": f"AI Bot Connection Timeout. Fallback active. Error: {str(e)}"
+            }
+
+    def formulate_execution_strategy(self, task_objective: str) -> dict:
+        print(f"\n🧠 [AI-Brain] Dispatching system logs to LLM Cloud Engine...")
         
-        # Extract live metrics from our interconnected core_telemetry file
+        # 1. Fetch live telemetry from our first module
         raw_telemetry = self.sensor.capture_runtime_vectors()
-        metrics = raw_telemetry.get("metrics", {})
         
-        # Algorithmic decision score
-        anomaly_index = self.compute_anomaly_index(metrics)
-        print(f"🧠 [Brain-Core] Computed System Anomaly Index: {anomaly_index}")
-
-        # Self-correction logic based on live parameters
-        if anomaly_index > self.cognitive_threshold:
-            decision = "TRIGGER_SELF_HEALING"
-            reasoning = f"Anomaly Index ({anomaly_index}) breached threshold ({self.cognitive_threshold}). Resource optimization required."
-        else:
-            decision = "MAINTAIN_STEADY_STATE"
-            reasoning = "System telemetry registers nominal entropy. Operational state is optimal."
-
-        strategy_payload = {
-            "timestamp": time.time(),
-            "verdict": decision,
-            "reasoning_topology": reasoning,
-            "target_telemetry_signature": raw_telemetry.get("environment_signature"),
-            "execution_priority": "CRITICAL" if anomaly_index > self.cognitive_threshold else "LOW"
+        # 2. Consult the AI Bot (Gemini/OpenAI)
+        ai_strategy = self.consult_ai_bot(raw_telemetry, task_objective)
+        
+        print(f"🤖 [AI Bot Verdict]: {ai_strategy.get('verdict')}")
+        print(f"📖 [AI Bot Reasoning]: {ai_strategy.get('reasoning_topology')}")
+        
+        return {
+            "verdict": ai_strategy.get("verdict"),
+            "reasoning_topology": ai_strategy.get("reasoning_topology"),
+            "execution_priority": "CRITICAL" if ai_strategy.get("verdict") == "TRIGGER_SELF_HEALING" else "LOW"
         }
-        
-        self.anomaly_log.append(strategy_payload)
-        return strategy_payload
-
-if __name__ == "__main__":
-    # Local runtime emulation for interconnected modules
-    sensor_instance = SystemTelemetryMatrix()
-    brain_instance = CognitiveMatrixEngine(sensor_node=sensor_instance)
-    
-    # Simulating a core task check
-    verdict = brain_instance.formulate_execution_strategy("Verify active micro-service cluster reliability.")
-    print("🧠 [Brain verdict payload]:\n", json.dumps(verdict, indent=4))
