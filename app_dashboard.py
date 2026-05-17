@@ -1,53 +1,51 @@
 import time
 import streamlit as st
 
-from core_telemetry import SystemTelemetryMatrix
-from cognitive_brain import LLMAgentBrain
-from runtime_executor import RuntimeExecutionOrchestrator
+from config import APP_TITLE, DEFAULT_FEEDS
+from master_orchestrator import MasterOrchestrator
 
+st.set_page_config(page_title=APP_TITLE, page_icon="🧠", layout="wide")
 
-st.set_page_config(page_title="Mythos 2.0 - Operational Core", page_icon="🧠", layout="wide")
-
-if "sensor" not in st.session_state:
-    st.session_state.sensor = SystemTelemetryMatrix()
-    st.session_state.brain = LLMAgentBrain(sensor_node=st.session_state.sensor)
-    st.session_state.orchestrator = RuntimeExecutionOrchestrator(brain_node=st.session_state.brain)
+if "orchestrator" not in st.session_state:
+    st.session_state.orchestrator = MasterOrchestrator()
     st.session_state.logs = []
-    st.session_state.auto_refresh = False
-    st.session_state.refresh_interval = 2
     st.session_state.last_result = None
+    st.session_state.auto_refresh = False
+    st.session_state.refresh_interval = 10
+    st.session_state.selected_feed = DEFAULT_FEEDS[0] if DEFAULT_FEEDS else ""
 
-st.title("🧠 Mythos 2.0: Operational AI Core")
-st.subheader("Autonomous Multi-Agent Feedback Control Loop")
+st.title(APP_TITLE)
+st.subheader("Autonomous Defensive Intelligence Control Plane")
 st.markdown("---")
 
 with st.sidebar:
-    st.header("⚙️ Core Controls")
-    auto_refresh = st.checkbox("Activate Framework Loop", value=st.session_state.auto_refresh)
-    refresh_interval = st.slider("Sensor Refresh Interval (Seconds)", 1, 10, st.session_state.refresh_interval)
+    st.header("Core Controls")
+    st.session_state.selected_feed = st.text_input("Target feed URL", value=st.session_state.selected_feed)
+    st.session_state.auto_refresh = st.checkbox("Activate Framework Loop", value=st.session_state.auto_refresh)
+    st.session_state.refresh_interval = st.slider("Refresh Interval (seconds)", 5, 60, st.session_state.refresh_interval)
     run_once = st.button("Run Single Cycle", use_container_width=True)
     clear_logs = st.button("Clear Logs", use_container_width=True)
-
-    st.session_state.auto_refresh = auto_refresh
-    st.session_state.refresh_interval = refresh_interval
 
     if clear_logs:
         st.session_state.logs = []
         st.session_state.last_result = None
 
-def execute_cycle():
-    result = st.session_state.orchestrator.run_autonomous_pipeline(
-        "Maintain stable machine operational matrix."
-    )
-    st.session_state.last_result = result
+def summarize_log(result: dict) -> str:
+    decision = result.get("decision", {})
+    enrich = decision.get("llm_enrichment") or {}
+    summary = enrich.get("summary") or decision.get("reasoning_topology", "")
+    summary = " ".join(summary.split())
+    return summary[:140] + ("..." if len(summary) > 140 else "")
 
-    log_line = (
-        f"[{time.strftime('%H:%M:%S')}] "
-        f"{result['verdict']} | "
-        f"{result['execution_priority']} | "
-        f"{result['reasoning_topology']}"
+def execute_cycle():
+    if not st.session_state.selected_feed.strip():
+        return
+    result = st.session_state.orchestrator.run_single_cycle(st.session_state.selected_feed.strip())
+    st.session_state.last_result = result
+    st.session_state.logs.insert(
+        0,
+        f"[{result['timestamp']}] {result['decision']['autonomous_action']} | {result['decision']['priority']} | {summarize_log(result)}"
     )
-    st.session_state.logs.insert(0, log_line)
     st.session_state.logs = st.session_state.logs[:20]
 
 if run_once:
@@ -56,56 +54,61 @@ if run_once:
 if st.session_state.auto_refresh:
     execute_cycle()
 
-col1, col2 = st.columns([1, 2])
+left, right = st.columns([1, 2])
 
-with col1:
-    st.header("📊 Live System Telemetry")
-
+with left:
+    st.header("Live Decision State")
     result = st.session_state.last_result
-    telemetry = result["telemetry"] if result else st.session_state.sensor.capture_runtime_vectors()
-    metrics = telemetry.get("metrics", {})
 
-    st.metric("System CPU Footprint", f"{metrics.get('cpu_load_percentage', 0)} %")
-    st.metric("Memory Utilization", f"{metrics.get('memory_usage_percentage', 0)} %")
-    st.metric("Disk Utilization", f"{metrics.get('disk_usage_percentage', 0)} %")
-    st.metric("Process Count", f"{metrics.get('process_count', 0)}")
+    if result:
+        decision = result["decision"]
+        ingestion = result["ingestion"]
 
-    verdict = result.get("verdict") if result else "IDLE"
-    if verdict == "TRIGGER_SELF_HEALING":
-        st.error("🔴 ANOMALY DETECTED")
-    elif verdict == "REVIEW_AND_MONITOR":
-        st.warning("🟠 REVIEW REQUIRED")
-    elif verdict == "MAINTAIN_STEADY_STATE":
-        st.success("🟢 SYSTEM OPTIMAL")
+        st.metric("Risk Level", decision.get("risk_level", "UNKNOWN"))
+        st.metric("Action", decision.get("autonomous_action", "UNKNOWN"))
+        st.metric("Priority", decision.get("priority", "UNKNOWN"))
+        st.metric("Source Status", ingestion.get("status", "UNKNOWN"))
+
+        if decision.get("risk_level") == "CRITICAL":
+            st.error("Critical risk detected")
+        elif decision.get("risk_level") == "HIGH":
+            st.warning("High risk detected")
+        else:
+            st.success("System in monitored state")
     else:
-        st.info("ℹ️ Awaiting first cycle")
+        st.info("Run a cycle to initialize Mythos.")
 
-with col2:
-    st.header("🤖 Ultron Core Monologue & Insights")
+with right:
+    st.header("Sovereign Brain Output")
+    result = st.session_state.last_result
 
     if result:
         st.text_area(
             "Reasoning Topology",
-            value=result.get("reasoning_topology", ""),
-            height=140,
+            value=result["decision"].get("reasoning_topology", ""),
+            height=120,
         )
 
-        st.json(
-            {
-                "verdict": result.get("verdict"),
-                "execution_priority": result.get("execution_priority"),
-                "used_llm": result.get("used_llm"),
-                "maintenance_report": result.get("maintenance_report"),
-            }
-        )
+        enrichment = result["decision"].get("llm_enrichment")
+        if enrichment:
+            st.text_area(
+                "LLM Enrichment",
+                value=f"Summary: {enrichment.get('summary', '')}\n\nNext Step: {enrichment.get('recommended_next_step', '')}",
+                height=140,
+            )
+
+        st.json(result)
     else:
-        st.info("Run a cycle to initialize strategy output.")
+        st.info("No result yet.")
 
-    st.text_area(
-        "Operational Action Packets",
-        value="\n".join(st.session_state.logs),
-        height=240,
-    )
+st.markdown("### Operational Action Packets")
+st.text_area("Recent Logs", value="\n".join(st.session_state.logs), height=220)
+
+st.markdown("### Recent Memory")
+recent_runs = st.session_state.orchestrator.recent_runs(limit=5)
+for item in recent_runs:
+    with st.expander(f"{item['created_at']} | {item['verdict']} | {item['priority']}"):
+        st.json(item["payload"])
 
 if st.session_state.auto_refresh:
     time.sleep(st.session_state.refresh_interval)
