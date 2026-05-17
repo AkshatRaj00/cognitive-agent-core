@@ -1,4 +1,4 @@
 streamlit
 psutil
 openai
-beautifulsoup4
+python-dotenv
