@@ -41,9 +41,12 @@ if run_loop:
         telemetry = st.session_state.sensor.capture_runtime_vectors()
         metrics = telemetry.get("metrics", {})
         
-        # Live dashboard updates
-        cpu_metric.metric(label="System CPU Footprint", value=f"{metrics['metrics']['cpu_load_percentage']} %")
-        memory_metric.metric(label="Calculated Memory Drift", value=f"{metrics['metrics']['memory_drift_coefficient']} %")
+        # LIVE DASHBOARD UPDATES (FIXED: Direct key access, removed the double nesting bug)
+        cpu_val = metrics.get('cpu_load_percentage', 0.0)
+        mem_val = metrics.get('memory_drift_coefficient', 0.0)
+        
+        cpu_metric.metric(label="System CPU Footprint", value=f"{cpu_val} %")
+        memory_metric.metric(label="Calculated Memory Drift", value=f"{mem_val} %")
         
         # 2. Execution Pipeline run
         strategy = st.session_state.orchestrator.run_autonomous_pipeline("Optimize cluster infrastructure latency.")
