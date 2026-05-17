@@ -11,7 +11,8 @@ class LLMAgentBrain:
     def __init__(self, sensor_node: SystemTelemetryMatrix):
         self.sensor = sensor_node
         self.cognitive_threshold = 65.0
-        self.api_key = os.environ.get("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", "")
+        # EKDOM SAHI: Variable ka naam standard hona chahiye, asali key yahaan nahi likhni!
+        self.api_key = os.environ.get("AI_AGENT_API_KEY", "")
         
         if self.api_key:
             # Connecting directly to Groq's high-speed free cloud server
