@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from config import SQLITE_PATH
 
@@ -17,24 +17,27 @@ class MemoryStore:
     def _init_db(self):
         conn = self._connect()
         cur = conn.cursor()
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_at TEXT NOT NULL,
-                source TEXT,
-                verdict TEXT,
-                priority TEXT,
+                source TEXT NOT NULL,
+                verdict TEXT NOT NULL,
+                priority TEXT NOT NULL,
                 payload_json TEXT NOT NULL
             )
         """)
+
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS memories (
+            CREATE TABLE IF NOT EXISTS notes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_at TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                content TEXT NOT NULL
+                source TEXT NOT NULL,
+                note TEXT NOT NULL
             )
         """)
+
         conn.commit()
         conn.close()
 
@@ -54,12 +57,12 @@ class MemoryStore:
         conn.commit()
         conn.close()
 
-    def save_memory(self, kind: str, content: str):
+    def save_note(self, source: str, note: str):
         conn = self._connect()
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO memories (created_at, kind, content) VALUES (?, ?, ?)",
-            (datetime.utcnow().isoformat(timespec="seconds"), kind, content),
+            "INSERT INTO notes (created_at, source, note) VALUES (?, ?, ?)",
+            (datetime.utcnow().isoformat(timespec="seconds"), source, note),
         )
         conn.commit()
         conn.close()
@@ -74,28 +77,13 @@ class MemoryStore:
         rows = cur.fetchall()
         conn.close()
 
-        result = []
-        for created_at, source, verdict, priority, payload_json in rows:
-            result.append({
+        return [
+            {
                 "created_at": created_at,
                 "source": source,
                 "verdict": verdict,
                 "priority": priority,
                 "payload": json.loads(payload_json),
-            })
-        return result
-
-    def recent_memories(self, limit: int = 10) -> List[Dict[str, str]]:
-        conn = self._connect()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT created_at, kind, content FROM memories ORDER BY id DESC LIMIT ?",
-            (limit,),
-        )
-        rows = cur.fetchall()
-        conn.close()
-
-        return [
-            {"created_at": created_at, "kind": kind, "content": content}
-            for created_at, kind, content in rows
+            }
+            for created_at, source, verdict, priority, payload_json in rows
         ]
