@@ -11,8 +11,9 @@ if "orchestrator" not in st.session_state:
     st.session_state.logs = []
     st.session_state.last_result = None
     st.session_state.auto_refresh = False
-    st.session_state.refresh_interval = 10
+    st.session_state.refresh_interval = 15
     st.session_state.selected_feed = DEFAULT_FEEDS[0] if DEFAULT_FEEDS else ""
+    st.session_state.last_cycle_ts = 0.0
 
 st.title(APP_TITLE)
 st.subheader("Autonomous Defensive Intelligence Control Plane")
@@ -22,7 +23,7 @@ with st.sidebar:
     st.header("Core Controls")
     st.session_state.selected_feed = st.text_input("Target feed URL", value=st.session_state.selected_feed)
     st.session_state.auto_refresh = st.checkbox("Activate Framework Loop", value=st.session_state.auto_refresh)
-    st.session_state.refresh_interval = st.slider("Refresh Interval (seconds)", 5, 60, st.session_state.refresh_interval)
+    st.session_state.refresh_interval = st.slider("Refresh Interval (seconds)", 10, 120, st.session_state.refresh_interval)
     run_once = st.button("Run Single Cycle", use_container_width=True)
     clear_logs = st.button("Clear Logs", use_container_width=True)
 
@@ -35,12 +36,13 @@ def summarize_log(result: dict) -> str:
     enrich = decision.get("llm_enrichment") or {}
     summary = enrich.get("summary") or decision.get("reasoning_topology", "")
     summary = " ".join(summary.split())
-    return summary[:140] + ("..." if len(summary) > 140 else "")
+    return summary[:160] + ("..." if len(summary) > 160 else "")
 
 def execute_cycle():
-    if not st.session_state.selected_feed.strip():
+    url = st.session_state.selected_feed.strip()
+    if not url:
         return
-    result = st.session_state.orchestrator.run_single_cycle(st.session_state.selected_feed.strip())
+    result = st.session_state.orchestrator.run_single_cycle(url)
     st.session_state.last_result = result
     st.session_state.logs.insert(
         0,
@@ -50,9 +52,12 @@ def execute_cycle():
 
 if run_once:
     execute_cycle()
+    st.session_state.last_cycle_ts = time.time()
 
-if st.session_state.auto_refresh:
+now = time.time()
+if st.session_state.auto_refresh and now - st.session_state.last_cycle_ts >= st.session_state.refresh_interval:
     execute_cycle()
+    st.session_state.last_cycle_ts = now
 
 left, right = st.columns([1, 2])
 
@@ -63,38 +68,36 @@ with left:
     if result:
         decision = result["decision"]
         ingestion = result["ingestion"]
-
         st.metric("Risk Level", decision.get("risk_level", "UNKNOWN"))
         st.metric("Action", decision.get("autonomous_action", "UNKNOWN"))
         st.metric("Priority", decision.get("priority", "UNKNOWN"))
         st.metric("Source Status", ingestion.get("status", "UNKNOWN"))
 
-        if decision.get("risk_level") == "CRITICAL":
-            st.error("Critical risk detected")
-        elif decision.get("risk_level") == "HIGH":
-            st.warning("High risk detected")
+        if decision.get("risk_level") == "HIGH":
+            st.warning("High-risk signal detected")
+        elif decision.get("risk_level") == "MEDIUM":
+            st.info("Monitored signal detected")
         else:
-            st.success("System in monitored state")
+            st.success("Low-risk monitored state")
     else:
         st.info("Run a cycle to initialize Mythos.")
 
 with right:
     st.header("Sovereign Brain Output")
     result = st.session_state.last_result
-
     if result:
-        st.text_area(
-            "Reasoning Topology",
-            value=result["decision"].get("reasoning_topology", ""),
-            height=120,
-        )
+        st.text_area("Reasoning Topology", value=result["decision"].get("reasoning_topology", ""), height=100)
 
         enrichment = result["decision"].get("llm_enrichment")
         if enrichment:
             st.text_area(
                 "LLM Enrichment",
-                value=f"Summary: {enrichment.get('summary', '')}\n\nNext Step: {enrichment.get('recommended_next_step', '')}",
-                height=140,
+                value=(
+                    f"Summary: {enrichment.get('summary', '')}\n\n"
+                    f"Recommended Next Step: {enrichment.get('recommended_next_step', '')}\n\n"
+                    f"Confidence Note: {enrichment.get('confidence_note', '')}"
+                ),
+                height=180,
             )
 
         st.json(result)
@@ -105,11 +108,10 @@ st.markdown("### Operational Action Packets")
 st.text_area("Recent Logs", value="\n".join(st.session_state.logs), height=220)
 
 st.markdown("### Recent Memory")
-recent_runs = st.session_state.orchestrator.recent_runs(limit=5)
-for item in recent_runs:
+for item in st.session_state.orchestrator.recent_runs(limit=5):
     with st.expander(f"{item['created_at']} | {item['verdict']} | {item['priority']}"):
         st.json(item["payload"])
 
 if st.session_state.auto_refresh:
-    time.sleep(st.session_state.refresh_interval)
+    time.sleep(1)
     st.rerun()
