@@ -1,64 +1,63 @@
 import streamlit as st
 import time
-import json
-import random
-# Interconnecting our core agent modules
 from core_telemetry import SystemTelemetryMatrix
-from cognitive_brain import CognitiveMatrixEngine
+from cognitive_brain import LLMAgentBrain
+from runtime_executor import RuntimeExecutionOrchestrator
 
-# Page configuration for a premium dark-themed developer UI
+# Page configurations for dark telemetry hub theme
 st.set_page_config(page_title="Cognitive Agent Core", page_icon="🧠", layout="wide")
 
-st.title("🧠 Cognitive AI Agent Core - Real-Time Control Loop")
+st.title("🧠 Cognitive AI Agent Core")
+st.subheader("Autonomous Multi-Agent Feedback Control Loop")
 st.markdown("---")
 
-# Initializing core subsystems
-sensor = SystemTelemetryMatrix()
-brain = CognitiveMatrixEngine(sensor_node=sensor)
+# Bootstrap system layers
+if 'sensor' not in st.session_state:
+    st.session_state.sensor = SystemTelemetryMatrix()
+    st.session_state.brain = LLMAgentBrain(sensor_node=st.session_state.sensor)
+    st.session_state.orchestrator = RuntimeExecutionOrchestrator(brain_node=st.session_state.brain)
 
-# UI Layout: Splitting the screen into real-time metrics and AI reasoning
 col1, col2 = st.columns([1, 2])
 
 with col1:
-    st.header("📊 Live System Telemetry")
-    cpu_metric = st.metric(label="CPU Utilization", value="0 %")
-    memory_metric = st.metric(label="Memory Drift Coeff", value="0 %")
-    status_indicator = st.subheader("System Status: Fetching...")
+    st.header("📊 Telemetry Metrics")
+    cpu_metric = st.metric(label="System CPU Footprint", value="0 %")
+    memory_metric = st.metric(label="Calculated Memory Drift", value="0 %")
+    status_box = st.empty()
 
 with col2:
-    st.header("🤖 AI Agent Internal Monologue")
-    log_area = st.empty()
-    action_status = st.info("Agent State: Standing by...")
+    st.header("🤖 Agent Internal Engine Monologue")
+    action_box = st.empty()
+    log_stream = st.empty()
 
-# Continuous Real-Time Simulation Loop
-st.markdown("### 🔄 Active Monitoring Stream")
-run_agent = st.checkbox("Start Autonomous Agent Loop", value=True)
+st.sidebar.header("⚙️ Core Controls")
+run_loop = st.sidebar.checkbox("Activate Framework Loop", value=True)
+loop_speed = st.sidebar.slider("Sensor Refresh Interval (Seconds)", 1.0, 5.0, 2.0)
 
-if run_agent:
-    log_data = []
+if run_loop:
+    logs = []
     while True:
-        # 1. Fetch live telemetry vectors
-        telemetry = sensor.capture_runtime_vectors()
+        # 1. Realtime telemetry retrieval
+        telemetry = st.session_state.sensor.capture_runtime_vectors()
         metrics = telemetry.get("metrics", {})
         
-        # Updating UI metrics live
-        cpu_metric.metric(label="CPU Utilization", value=f"{metrics['cpu_load_percentage']} %")
-        memory_metric.metric(label="Memory Drift Coeff", value=f"{metrics['memory_drift_coefficient']} %")
+        # Live dashboard updates
+        cpu_metric.metric(label="System CPU Footprint", value=f"{metrics['cpu_load_percentage']} %")
+        memory_metric.metric(label="Calculated Memory Drift", value=f"{metrics['memory_drift_coefficient']} %")
         
-        # 2. Consult the Cognitive Engine
-        strategy = brain.formulate_execution_strategy("Maintain optimal server latency.")
+        # 2. Execution Pipeline run
+        strategy = st.session_state.orchestrator.run_autonomous_pipeline("Optimize cluster infrastructure latency.")
         
-        # Update Status based on Agent's Verdict
+        # 3. Dynamic UI updates based on operational decisions
         if strategy["verdict"] == "TRIGGER_SELF_HEALING":
-            status_indicator.error("🔴 ANOMALY DETECTED")
-            action_status.error(f"⚡ [Action Executed]: {strategy['reasoning_topology']}")
+            status_box.error("🔴 ANOMALY BREACH")
+            action_box.error(f"⚡ [Action Vector]: {strategy['reasoning_topology']}")
         else:
-            status_indicator.success("🟢 SYSTEM OPTIMAL")
-            action_status.success(f"🛡️ [Stable State]: {strategy['reasoning_topology']}")
+            status_box.success("🟢 baseline Secure")
+            action_box.success(f"🛡️ [Steady State]: {strategy['reasoning_topology']}")
             
-        # Logging thoughts to the UI front page
-        log_entry = f"[{time.strftime('%H:%M:%S')}] Verdict: {strategy['verdict']} | {strategy['reasoning_topology']}"
-        log_data.insert(0, log_entry)
-        log_area.text_area("Agent Execution Logs", value="\n".join(log_data[:10]), height=200)
+        log_line = f"[{time.strftime('%H:%M:%S')}] {strategy['verdict']} ➔ {strategy['reasoning_topology']}"
+        logs.insert(0, log_line)
+        log_stream.text_area("Live Log Output (Top 10 Packets)", value="\n".join(logs[:10]), height=250)
         
-        time.sleep(2) # Refreshing every 2 seconds to match live streams
+        time.sleep(loop_speed)
