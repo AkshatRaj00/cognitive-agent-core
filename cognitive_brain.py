@@ -10,7 +10,6 @@ class LLMAgentBrain:
     """
     def __init__(self, sensor_node: SystemTelemetryMatrix):
         self.sensor = sensor_node
-        # Utilizing our secure Groq Cloud pipeline
         self.api_key = os.environ.get("AI_AGENT_API_KEY", "")
         if self.api_key:
             self.client = OpenAI(
@@ -24,7 +23,7 @@ class LLMAgentBrain:
         if not self.client:
             return {"verdict": "MAINTAIN_STEADY_STATE", "reasoning_topology": "AI Client Offline."}
 
-        # Hardened system prompt: Explicitly forcing the model to stick to reality
+        # Deterministic guidelines forcing the model to evaluate actual metrics only
         system_prompt = (
             "You are a production-grade Infrastructure Operations Agent. You manage real-world host telemetry. "
             "Analyze the incoming metrics dictionary. Do not hallucinate external exploits or fake CVE threats. "
@@ -40,10 +39,10 @@ class LLMAgentBrain:
                 model="llama-3.1-8b-instant",
                 response_format={ "type": "json_object" },
                 messages=[
-                    {"role": "system", "prompt": system_prompt},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.1  # Absolute lowest entropy for factual precision
+                temperature=0.1  # Eliminating randomness for deterministic tracking
             )
             return json.loads(response.choices[0].message.content)
         except Exception as e:
