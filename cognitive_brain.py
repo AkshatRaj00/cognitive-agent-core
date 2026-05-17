@@ -6,24 +6,25 @@ from core_telemetry import SystemTelemetryMatrix
 
 class LLMAgentBrain:
     """
-    Advanced AI Bot Brain. Passes raw system telemetry vectors 
-    directly to an LLM or fallback math heuristics to make autonomous decisions.
+    Advanced AI Bot Brain powered by Groq's Hyper-Fast Free API.
     """
     def __init__(self, sensor_node: SystemTelemetryMatrix):
         self.sensor = sensor_node
         self.cognitive_threshold = 65.0
-        # Safe initialization of OpenAI/Gemini client
-        self.api_key = os.environ.get("org_01krvpwrw8ffnsz27mhc1psgzh", "")
+        self.api_key = os.environ.get("project_01krvpwspffg0tgrebz8f366vc", "")
+        
         if self.api_key:
-            self.client = OpenAI(api_key=self.api_key)
+            # Connecting directly to Groq's high-speed free cloud server
+            self.client = OpenAI(
+                api_key=self.api_key,
+                base_url="https://api.groq.com/openai/v1"
+            )
         else:
             self.client = None
 
     def compute_math_fallback(self, metrics: dict) -> dict:
-        """Heuristic math engine that triggers if Cloud AI API key is not configured."""
         cpu = metrics.get("cpu_load_percentage", 0.0)
         drift = metrics.get("memory_drift_coefficient", 0.0)
-        
         base_vector = (cpu * 0.4) + (drift * 0.6)
         entropy_factor = math.sin(base_vector) * 5.0
         anomaly_index = round(base_vector + entropy_factor, 4)
@@ -31,16 +32,15 @@ class LLMAgentBrain:
         if anomaly_index > self.cognitive_threshold:
             return {
                 "verdict": "TRIGGER_SELF_HEALING",
-                "reasoning_topology": f"Heuristic Engine Alert: Anomaly Index ({anomaly_index}) breached safety limits."
+                "reasoning_topology": f"Fallback: High entropy detected ({anomaly_index})."
             }
         else:
             return {
                 "verdict": "MAINTAIN_STEADY_STATE",
-                "reasoning_topology": f"Heuristic Engine Nominal: System baseline stable at score {anomaly_index}."
+                "reasoning_topology": f"Fallback: Nominal state ({anomaly_index})."
             }
 
     def consult_ai_bot(self, telemetry_data: dict, task: str) -> dict:
-        """Consults LLM Bot if key exists, otherwise gracefully falls back to Math Heuristics."""
         if not self.client:
             return self.compute_math_fallback(telemetry_data.get("metrics", {}))
 
@@ -54,7 +54,7 @@ class LLMAgentBrain:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="llama-3.1-8b-instant",  # Ultra-fast, high-limit free model on Groq
                 response_format={ "type": "json_object" },
                 messages=[
                     {"role": "system", "content": system_prompt},
