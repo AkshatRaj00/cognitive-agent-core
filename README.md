@@ -230,3 +230,5 @@ The right goal is not to pretend it is already a god-tier intelligence.
 The right goal is to make it powerful through iteration, structure, honesty, and disciplined engineering.
 ## Contributors
 Thanks to all contributors!
+## Acknowledgements
+Built with passion 🚀
