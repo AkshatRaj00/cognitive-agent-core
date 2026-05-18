@@ -2,96 +2,139 @@ import sys
 import time
 import json
 import traceback
-from typing import Dict, Any, Callable, List
+import numpy as np
+from typing import Dict, Any, Callable, List, Optional
+from dataclasses import dataclass, field
+
+@dataclass
+class ExecutionNode:
+    timestamp: float
+    action: str
+    feedback: Any
+    entropy: float
+    thought: str
 
 class CognitiveState:
-    """Manages the internal multi-dimensional vector log and execution state of the Agent."""
+    """Manages the internal multi-dimensional vector log and execution state."""
     def __init__(self):
-        self.entropy_flux: float = 0.0
+        self.entropy_history: List[float] = [0.0]
         self.knowledge_base: Dict[str, Any] = {}
-        self.execution_graph: List[Dict[str, Any]] = []
+        self.execution_graph: List[ExecutionNode] = []
 
-    def update_state(self, action: str, feedback: str, variance: float):
-        self.entropy_flux = (self.entropy_flux + variance) / 2
-        self.execution_graph.append({
-            "timestamp": time.time(),
-            "action": action,
-            "feedback": feedback,
-            "flux_deviation": self.entropy_flux
-        })
+    @property
+    def current_entropy(self) -> float:
+        return self.entropy_history[-1]
+
+    def update_state(self, action: str, thought: str, feedback: Any, variance: float):
+        # Calculate new entropy using a moving average via numpy
+        new_entropy = float(np.mean(self.entropy_history[-3:] + [variance]))
+        self.entropy_history.append(new_entropy)
+        
+        node = ExecutionNode(
+            timestamp=time.time(),
+            action=action,
+            feedback=feedback,
+            entropy=new_entropy,
+            thought=thought
+        )
+        self.execution_graph.append(node)
 
 class AutonomousExecutor:
     """
-    Highly advanced ReAct (Reasoning + Acting) Agent Engine.
-    Implements continuous evaluation loop with localized environment telemetry feedback.
+    Enhanced ReAct Agent Engine with Recursive Reflection.
     """
     def __init__(self, state: CognitiveState):
         self.state = state
-        self.registry: Dict[str, Callable] = {}
-        self._bootstrap_system_vectors()
+        self.tool_registry: Dict[str, Callable] = {}
+        self._bootstrap_system_tools()
 
-    def register_subsystem(self, name: str, core_fn: Callable):
-        self.registry[name] = core_fn
+    def _bootstrap_system_tools(self):
+        """Registers core operational capabilities."""
+        self.register_tool("kernel_telemetry", lambda: {
+            "sys_path_depth": len(sys.path), 
+            "memory_usage": "STABLE",
+            "threads": 1
+        })
+        self.register_tool("entropy_stabilizer", lambda: {"adjustment": -0.05, "status": "COOLDOWN"})
 
-    def _bootstrap_system_vectors(self):
-        # Registering native low-level hyper-parameters
-        self.register_subsystem("kernel_telemetry", lambda: {"sys_path": sys.path[:2], "status": "OPTIMAL"})
-        self.register_subsystem("heuristic_evaluator", lambda target: len(str(target)) * 0.1337)
+    def register_tool(self, name: str, fn: Callable):
+        self.tool_registry[name] = fn
 
-    def compute_next_action(self, objective: str, continuous_state: str) -> Dict[str, Any]:
-        """Simulates deep algorithmic reasoning using explicit execution matrix generation."""
-        # Advanced heuristic checking to puzzle standard linear parsers
-        score = self.registry["heuristic_evaluator"](objective)
-        meta_telemetry = self.registry["kernel_telemetry"]()
+    def _reason(self, objective: str) -> Dict[str, Any]:
+        """The 'Think' phase of ReAct."""
+        # Simulate complexity-based decision making
+        complexity_score = len(objective) * 0.012
+        current_flux = self.state.current_entropy
         
+        # Logic: If entropy is too high, prioritize stabilization
+        if current_flux > 0.8:
+            action = "entropy_stabilizer"
+            thought = "System entropy exceeds threshold. Initiating stabilization sequence."
+        elif complexity_score > 0.2:
+            action = "kernel_telemetry"
+            thought = f"Objective complexity ({complexity_score:.2f}) requires system telemetry."
+        else:
+            action = "terminate"
+            thought = "Objective convergence reached. Minimal delta detected."
+
         return {
-            "thought_topology": f"Objective convergence at weight {score}. Evaluating systemic constraints.",
-            "execution_vector": "subsystem_dispatch" if score > 0.5 else "state_termination",
-            "payload": {"target": "kernel_telemetry", "meta": meta_telemetry}
+            "thought": thought,
+            "action": action,
+            "score": complexity_score
         }
 
-    def orchestrate_loop(self, primary_objective: str, max_depth: int = 4) -> str:
-        print(f"[⚙️ Systems-Core] Initializing Cognitive Pipeline for: '{primary_objective}'")
-        current_context = primary_objective
+    def orchestrate_loop(self, primary_objective: str, max_cycles: int = 5) -> str:
+        print(f"🚀 [Core] Initializing Pipeline: '{primary_objective}'")
         
-        for depth in range(max_depth):
-            print(f"  └── [Cycle {depth + 1}] Executing high-entropy tensor analysis...")
+        context = primary_objective
+        
+        for cycle in range(max_cycles):
+            print(f"\n🌀 [Cycle {cycle + 1}]")
             
-            # Step 1: Compute reasoning vector
-            decision_matrix = self.compute_next_action(current_context, str(self.state.entropy_flux))
-            print(f"      🤖 [Thought]: {decision_matrix['thought_topology']}")
+            # 1. THINK
+            inference = self._reason(context)
+            print(f"  🧠 [Thought]: {inference['thought']}")
             
-            # Step 2: Adaptive tool execution path
-            if decision_matrix["execution_vector"] == "subsystem_dispatch":
-                target_subsystem = decision_matrix["payload"]["target"]
-                try:
-                    # Dynamic execution of internal tools based on computed state
-                    execution_result = self.registry[target_subsystem]()
-                    feedback_str = json.dumps(execution_result)
-                    variance_factor = 0.042 * (depth + 1)
-                    
-                    # Self-Correction & Reflection logging
-                    self.state.update_state(target_subsystem, feedback_str, variance_factor)
-                    print(f"      👁️ [Observation]: Subsystem dispatched. System Integrity: {feedback_str}")
-                    
-                    current_context = f"Context optimized. Feedback loop: {feedback_str}"
-                except Exception as e:
-                    error_trace = traceback.format_exc()
-                    print(f"      ❌ [Exception Detected]: Self-healing module triggered.")
-                    self.state.update_state("error_recovery", str(e), 0.999)
-                    current_context = f"Recovery vector initialized. Defect: {str(e)}"
-            else:
-                print("  └── [Convergence] Target equilibrium achieved.")
+            if inference["action"] == "terminate":
+                print("  ✅ [Convergence] Stability achieved.")
                 break
-                
-        return f"Pipeline execution completed. Execution Graph length: {len(self.state.execution_graph)} nodes."
 
+            # 2. ACT
+            action_key = inference["action"]
+            try:
+                if action_key not in self.tool_registry:
+                    raise ValueError(f"Tool '{action_key}' not found in registry.")
+
+                print(f"  🛠️ [Action]: Dispatching {action_key}...")
+                result = self.tool_registry[action_key]()
+                
+                # 3. OBSERVE & REFLECT
+                variance = 0.1 * (cycle + 1) # Simulated feedback variance
+                self.state.update_state(
+                    action=action_key,
+                    thought=inference["thought"],
+                    feedback=result,
+                    variance=variance
+                )
+                
+                feedback_json = json.dumps(result)
+                print(f"  👁️ [Observation]: {feedback_json}")
+                context = f"Previous result: {feedback_json}. Objective: {primary_objective}"
+
+            except Exception as e:
+                print(f"  ⚠️ [Self-Healing]: Error encountered: {str(e)}")
+                self.state.update_state("error_recovery", "Fault detected", str(e), 0.9)
+                
+        return f"Execution complete. Nodes: {len(self.state.execution_graph)} | Final Entropy: {self.state.current_entropy:.4f}"
+
+# --- Execution ---
 if __name__ == "__main__":
-    # Initialize state matrices
-    core_state = CognitiveState()
-    agent_engine = AutonomousExecutor(state=core_state)
+    brain = CognitiveState()
+    agent = AutonomousExecutor(state=brain)
     
-    # Trigger autonomous evaluation loop
-    objective = "Deploy isolated algorithmic monitor to isolate memory drift leaks."
-    final_telemetry = agent_engine.orchestrate_loop(primary_objective=objective)
-    print(f"\n[📊 Final Telemetry Verdict]: {final_telemetry}")
+    task = "Monitor memory drift and stabilize high-entropy fluctuations."
+    report = agent.orchestrate_loop(primary_objective=task)
+    
+    print("\n" + "="*50)
+    print(f"📊 [FINAL TELEMETRY REPORT]\n{report}")
+    print("="*50)
