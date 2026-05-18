@@ -228,3 +228,5 @@ Mythos Core is at its best when treated like an evolving systems-engineering pro
 
 The right goal is not to pretend it is already a god-tier intelligence.
 The right goal is to make it powerful through iteration, structure, honesty, and disciplined engineering.
+## Contributors
+Thanks to all contributors!
