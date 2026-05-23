@@ -5,6 +5,9 @@ from typing import Any, Dict, List
 
 from config import SQLITE_PATH
 
+# Maximum records returned by recent_runs to prevent memory bloat
+DEFAULT_CONTEXT_LIMIT = 50
+
 
 class MemoryStore:
     def __init__(self, db_path: str = SQLITE_PATH):
@@ -67,12 +70,19 @@ class MemoryStore:
         conn.commit()
         conn.close()
 
-    def recent_runs(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def recent_runs(self, limit: int = DEFAULT_CONTEXT_LIMIT) -> List[Dict[str, Any]]:
+        """
+        Returns recent runs up to `limit` records.
+        Default capped at DEFAULT_CONTEXT_LIMIT to prevent unbounded memory growth
+        when called without an explicit limit in long-running agent sessions.
+        """
+        # Clamp limit to prevent accidental full-table scans
+        safe_limit = min(limit, DEFAULT_CONTEXT_LIMIT)
         conn = self._connect()
         cur = conn.cursor()
         cur.execute(
             "SELECT created_at, source, verdict, priority, payload_json FROM runs ORDER BY id DESC LIMIT ?",
-            (limit,),
+            (safe_limit,),
         )
         rows = cur.fetchall()
         conn.close()
@@ -87,3 +97,7 @@ class MemoryStore:
             }
             for created_at, source, verdict, priority, payload_json in rows
         ]
+
+    def close(self):
+        """No-op for interface compatibility. Connections are closed per-operation."""
+        pass
