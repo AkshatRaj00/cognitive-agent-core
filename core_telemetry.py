@@ -1,67 +1,127 @@
-import os
-import platform
-import sys
+"""core_telemetry.py — Lightweight structured telemetry / event tracing."""
+
 import time
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+import json
+import threading
+from dataclasses import dataclass, asdict, field
+from typing import Any, Optional
+from collections import deque
 
-import psutil
+
+@dataclass
+class TelemetryEvent:
+    """A single structured telemetry event."""
+    event_type: str
+    timestamp: float = field(default_factory=time.time)
+    duration_ms: Optional[float] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    success: bool = True
+    error: Optional[str] = None
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), default=str)
 
 
-class SystemTelemetryMatrix:
+class Telemetry:
+    """Thread-safe telemetry sink with an in-memory ring buffer.
+
+    Events are stored in a bounded deque (ring buffer) so memory usage
+    is capped regardless of runtime duration.
     """
-    Safe local telemetry collector.
-    Collects real host metrics without fake fallback values.
-    """
 
-    def __init__(self):
-        self.os_type = platform.system()
-        self.architecture = platform.machine()
-        self.hostname = platform.node()
-        self._prime_cpu_reader()
+    def __init__(self, max_events: int = 500, enabled: bool = True):
+        self._buffer: deque[TelemetryEvent] = deque(maxlen=max_events)
+        self._lock = threading.Lock()
+        self.enabled = enabled
+        self._counters: dict[str, int] = {}
 
-    def _prime_cpu_reader(self) -> None:
-        try:
-            psutil.cpu_percent(interval=None)
-        except Exception:
-            pass
+    # ------------------------------------------------------------------
+    # Recording
+    # ------------------------------------------------------------------
 
-    @staticmethod
-    def _safe_load_average() -> Optional[Tuple[float, float, float]]:
-        if hasattr(os, "getloadavg"):
-            try:
-                return tuple(round(x, 2) for x in os.getloadavg())
-            except OSError:
-                return None
-        return None
+    def record(self, event_type: str, *, duration_ms: Optional[float] = None,
+               metadata: Optional[dict] = None, success: bool = True,
+               error: Optional[str] = None) -> None:
+        """Record a telemetry event."""
+        if not self.enabled:
+            return
+        event = TelemetryEvent(
+            event_type=event_type,
+            duration_ms=duration_ms,
+            metadata=metadata or {},
+            success=success,
+            error=error,
+        )
+        with self._lock:
+            self._buffer.append(event)
+            self._counters[event_type] = self._counters.get(event_type, 0) + 1
 
-    def capture_runtime_vectors(self) -> Dict[str, Any]:
-        vm = psutil.virtual_memory()
-        disk = psutil.disk_usage(str(Path.home()))
-        net = psutil.net_io_counters()
-        boot_time = datetime.fromtimestamp(psutil.boot_time()).isoformat(timespec="seconds")
+    def timed(self, event_type: str, metadata: Optional[dict] = None):
+        """Context manager that records an event with automatic duration.
 
-        cpu_load = psutil.cpu_percent(interval=0.1)
+        Usage::
 
-        return {
-            "telemetry_status": "ONLINE",
-            "timestamp": datetime.now().isoformat(timespec="seconds"),
-            "environment_signature": f"{self.os_type}_{self.architecture}",
-            "hostname": self.hostname,
-            "boot_time": boot_time,
-            "metrics": {
-                "cpu_load_percentage": round(cpu_load, 2),
-                "memory_usage_percentage": round(vm.percent, 2),
-                "memory_used_gb": round(vm.used / (1024 ** 3), 2),
-                "memory_total_gb": round(vm.total / (1024 ** 3), 2),
-                "disk_usage_percentage": round(disk.percent, 2),
-                "disk_used_gb": round(disk.used / (1024 ** 3), 2),
-                "disk_total_gb": round(disk.total / (1024 ** 3), 2),
-                "process_count": len(psutil.pids()),
-                "network_bytes_sent": int(net.bytes_sent),
-                "network_bytes_recv": int(net.bytes_recv),
-                "load_average": self._safe_load_average(),
-            },
-            "python_version": sys.version.split()[0],
-        }
+            with telemetry.timed("llm.call", metadata={"model": "gemini-pro"}):
+                response = model.generate(prompt)
+        """
+        return _TimedEvent(self, event_type, metadata or {})
+
+    # ------------------------------------------------------------------
+    # Querying
+    # ------------------------------------------------------------------
+
+    def events(self, event_type: Optional[str] = None) -> list[TelemetryEvent]:
+        """Return a snapshot of buffered events, optionally filtered by type."""
+        with self._lock:
+            if event_type is None:
+                return list(self._buffer)
+            return [e for e in self._buffer if e.event_type == event_type]
+
+    def count(self, event_type: str) -> int:
+        """Total number of times *event_type* has been recorded (lifetime)."""
+        with self._lock:
+            return self._counters.get(event_type, 0)
+
+    def summary(self) -> dict[str, Any]:
+        """Return a dict summarising event counts and average durations."""
+        with self._lock:
+            result: dict[str, Any] = {}
+            for etype in set(e.event_type for e in self._buffer):
+                evts = [e for e in self._buffer if e.event_type == etype]
+                durations = [e.duration_ms for e in evts if e.duration_ms is not None]
+                result[etype] = {
+                    "count": self._counters.get(etype, 0),
+                    "success_rate": sum(1 for e in evts if e.success) / len(evts),
+                    "avg_duration_ms": (sum(durations) / len(durations)) if durations else None,
+                }
+            return result
+
+    def clear(self) -> None:
+        with self._lock:
+            self._buffer.clear()
+
+
+class _TimedEvent:
+    """Internal context manager used by Telemetry.timed()."""
+
+    def __init__(self, telemetry: Telemetry, event_type: str, metadata: dict):
+        self._telemetry = telemetry
+        self._event_type = event_type
+        self._metadata = metadata
+        self._start: float = 0.0
+        self.error: Optional[str] = None
+
+    def __enter__(self) -> "_TimedEvent":
+        self._start = time.perf_counter()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        duration_ms = (time.perf_counter() - self._start) * 1000
+        self._telemetry.record(
+            self._event_type,
+            duration_ms=duration_ms,
+            metadata=self._metadata,
+            success=exc_type is None,
+            error=str(exc_val) if exc_val else None,
+        )
+        return False  # don't suppress exceptions
