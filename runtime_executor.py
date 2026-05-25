@@ -1,79 +1,93 @@
-import gc
-import json
-import os
-import platform
-import subprocess
+"""runtime_executor.py — Executes agent tasks with retry and backoff."""
+
 import time
-from typing import Any, Dict
+import logging
+from typing import Any, Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 
-class RuntimeExecutionOrchestrator:
+class ExecutionError(Exception):
+    """Raised when an agent task fails after all retry attempts."""
+
+    def __init__(self, message: str, attempts: int, last_exception: Optional[Exception] = None):
+        super().__init__(message)
+        self.attempts = attempts
+        self.last_exception = last_exception
+
+
+class RuntimeExecutor:
+    """Executes callable tasks with configurable retry and exponential backoff.
+
+    Attributes:
+        max_retries:   Maximum number of retry attempts (0 means try once only).
+        backoff_base:  Multiplier for backoff delay between retries.
+        timeout:       Per-attempt timeout in seconds (not enforced internally;
+                       callers should wrap with concurrent.futures if needed).
     """
-    Safe executor for local maintenance actions and audit logging.
-    """
 
-    def __init__(self, brain_node: Any):
-        self.brain = brain_node
-        self.audit_log_path = "production_agent_audit.log"
+    def __init__(
+        self,
+        max_retries: int = 3,
+        backoff_base: float = 1.5,
+        timeout: float = 30.0,
+        retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
+    ) -> None:
+        if max_retries < 0:
+            raise ValueError("max_retries must be >= 0")
+        self.max_retries = max_retries
+        self.backoff_base = backoff_base
+        self.timeout = timeout
+        self.retryable_exceptions = retryable_exceptions
 
-    def execute_environment_check(self) -> str:
+    def execute(self, task: Callable[[], Any], task_name: str = "task") -> Any:
+        """Run *task* with retry logic.
+
+        Args:
+            task:       Zero-argument callable to execute.
+            task_name:  Human-readable name used in log messages.
+
+        Returns:
+            The return value of *task* on success.
+
+        Raises:
+            ExecutionError: When all attempts are exhausted.
+        """
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                logger.debug("[%s] attempt %d/%d", task_name, attempt + 1, self.max_retries + 1)
+                result = task()
+                if attempt > 0:
+                    logger.info("[%s] succeeded on attempt %d", task_name, attempt + 1)
+                return result
+
+            except self.retryable_exceptions as exc:  # noqa: BLE001
+                last_exc = exc
+                if attempt < self.max_retries:
+                    delay = self.backoff_base ** attempt
+                    logger.warning(
+                        "[%s] attempt %d failed (%s), retrying in %.2fs",
+                        task_name, attempt + 1, exc, delay,
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(
+                        "[%s] all %d attempts failed. Last error: %s",
+                        task_name, self.max_retries + 1, exc,
+                    )
+
+        raise ExecutionError(
+            f"{task_name} failed after {self.max_retries + 1} attempt(s)",
+            attempts=self.max_retries + 1,
+            last_exception=last_exc,
+        )
+
+    def execute_with_fallback(self, task: Callable[[], Any], fallback: Any, task_name: str = "task") -> Any:
+        """Like execute(), but returns *fallback* instead of raising on total failure."""
         try:
-            if platform.system().lower().startswith("win"):
-                result = subprocess.run(
-                    ["cmd", "/c", "ver"],
-                    capture_output=True,
-                    text=True,
-                    timeout=3,
-                )
-            else:
-                result = subprocess.run(
-                    ["uname", "-a"],
-                    capture_output=True,
-                    text=True,
-                    timeout=3,
-                )
-            return (result.stdout or result.stderr).strip()
-        except Exception as e:
-            return f"Environment check skipped: {str(e)}"
-
-    def deploy_production_patch(self, strategy: Dict[str, Any]) -> Dict[str, Any]:
-        gc_cycles = 0
-        shell_intel = self.execute_environment_check()
-
-        try:
-            gc_cycles = gc.collect()
-        except Exception:
-            gc_cycles = 0
-
-        maintenance_report = {
-            "gc_cycles_collected": gc_cycles,
-            "environment_check": shell_intel,
-            "action_status": "COMPLETED",
-        }
-
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = {
-            "timestamp": timestamp,
-            "verdict": strategy.get("verdict"),
-            "priority": strategy.get("execution_priority"),
-            "reasoning": strategy.get("reasoning_topology"),
-            "maintenance_report": maintenance_report,
-        }
-
-        try:
-            with open(self.audit_log_path, "a", encoding="utf-8") as audit_file:
-                audit_file.write(json.dumps(log_entry) + "\n")
-        except Exception:
-            pass
-
-        return maintenance_report
-
-    def run_autonomous_pipeline(self, target_task: str) -> dict:
-        strategy_payload = self.brain.formulate_execution_strategy(target_task)
-
-        maintenance_report = None
-        if strategy_payload.get("verdict") == "TRIGGER_SELF_HEALING":
-            maintenance_report = self.deploy_production_patch(strategy_payload)
-
-        strategy_payload["maintenance_report"] = maintenance_report
-        return strategy_payload
+            return self.execute(task, task_name=task_name)
+        except ExecutionError:
+            logger.warning("[%s] using fallback value after all retries exhausted", task_name)
+            return fallback
